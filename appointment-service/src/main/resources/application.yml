@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: appointment-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${APPOINTMENT_DB_NAME:appointment_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:clinic}
+    password: ${RABBITMQ_PASSWORD}
+server:
+  port: ${APPOINTMENT_SERVICE_PORT:8084}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+info:
+  app:
+    name: ${spring.application.name}
+    version: 0.0.1
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+  slot-service-url: ${SLOT_SERVICE_URL:http://localhost:8083}
+  reminders:
+    interval-ms: ${REMINDER_INTERVAL_MS:60000}
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId:-}]"
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
