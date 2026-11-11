@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.env.old
+PS-Logs.txt
+**/target/
+**/node_modules/
+**/dist/
+.idea/
+.vscode/
+.vs/
+*.iml
+*.suo
+*.user
+*.sln.docstates
+*.log
+.DS_Store
