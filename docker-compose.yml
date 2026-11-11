@@ -1,0 +1,270 @@
+name: clinic-booking-phase2
+
+services:
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: auth_db
+      MYSQL_USER: ${MYSQL_APP_USER:?Set MYSQL_APP_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+    volumes:
+      - phase2_mysql_data:/var/lib/mysql
+      - ./infra/init-db/01-create-schemas.sql:/docker-entrypoint-initdb.d/01-create-schemas.sql:ro
+      - ./docker/mysql-init/02-grant-service-schemas.sh:/docker-entrypoint-initdb.d/02-grant-service-schemas.sh:ro
+    networks:
+      - clinic-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - clinic-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?Set RABBITMQ_USERNAME in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    volumes:
+      - phase2_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - clinic-network
+    # Development-only management UI; AMQP stays private on the bridge network.
+    ports:
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  auth-service:
+    build:
+      context: ./auth-service
+    image: clinic-booking-phase2-auth:local
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      AUTH_SERVICE_PORT: ${AUTH_SERVICE_PORT:-8082}
+      MYSQL_HOST: ${MYSQL_DOCKER_HOST:-mysql}
+      MYSQL_PORT: 3306
+      AUTH_DB_NAME: auth_db
+      DB_USERNAME: ${MYSQL_APP_USER:?Set MYSQL_APP_USER in .env}
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:?Set INITIAL_ADMIN_NAME in .env}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:?Set INITIAL_ADMIN_EMAIL in .env}
+      INITIAL_ADMIN_PASSWORD_HASH: ${INITIAL_ADMIN_PASSWORD_HASH:?Set INITIAL_ADMIN_PASSWORD_HASH in .env}
+      INITIAL_DOCTOR_ONE_NAME: ${INITIAL_DOCTOR_ONE_NAME:?Set INITIAL_DOCTOR_ONE_NAME in .env}
+      INITIAL_DOCTOR_ONE_EMAIL: ${INITIAL_DOCTOR_ONE_EMAIL:?Set INITIAL_DOCTOR_ONE_EMAIL in .env}
+      INITIAL_DOCTOR_ONE_PASSWORD_HASH: ${INITIAL_DOCTOR_ONE_PASSWORD_HASH:?Set INITIAL_DOCTOR_ONE_PASSWORD_HASH in .env}
+      INITIAL_DOCTOR_TWO_NAME: ${INITIAL_DOCTOR_TWO_NAME:?Set INITIAL_DOCTOR_TWO_NAME in .env}
+      INITIAL_DOCTOR_TWO_EMAIL: ${INITIAL_DOCTOR_TWO_EMAIL:?Set INITIAL_DOCTOR_TWO_EMAIL in .env}
+      INITIAL_DOCTOR_TWO_PASSWORD_HASH: ${INITIAL_DOCTOR_TWO_PASSWORD_HASH:?Set INITIAL_DOCTOR_TWO_PASSWORD_HASH in .env}
+    expose:
+      - "8082"
+    networks:
+      - clinic-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  slot-service:
+    build:
+      context: ./slot-service
+    image: clinic-booking-phase2-slot:local
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SLOT_SERVICE_PORT: ${SLOT_SERVICE_PORT:-8083}
+      MYSQL_HOST: ${MYSQL_DOCKER_HOST:-mysql}
+      MYSQL_PORT: 3306
+      SLOT_DB_NAME: slot_db
+      DB_USERNAME: ${MYSQL_APP_USER:?Set MYSQL_APP_USER in .env}
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+      RABBITMQ_HOST: ${RABBITMQ_DOCKER_HOST:-rabbitmq}
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?Set RABBITMQ_USERNAME in .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    expose:
+      - "8083"
+    networks:
+      - clinic-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8083/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  appointment-service:
+    build:
+      context: ./appointment-service
+    image: clinic-booking-phase2-appointment:local
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      APPOINTMENT_SERVICE_PORT: ${APPOINTMENT_SERVICE_PORT:-8084}
+      MYSQL_HOST: ${MYSQL_DOCKER_HOST:-mysql}
+      MYSQL_PORT: 3306
+      APPOINTMENT_DB_NAME: appointment_db
+      DB_USERNAME: ${MYSQL_APP_USER:?Set MYSQL_APP_USER in .env}
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+      REDIS_HOST: ${REDIS_DOCKER_HOST:-redis}
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: ${RABBITMQ_DOCKER_HOST:-rabbitmq}
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?Set RABBITMQ_USERNAME in .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      SLOT_SERVICE_URL: ${SLOT_SERVICE_DOCKER_URL:-http://slot-service:8083}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      REMINDER_INTERVAL_MS: ${REMINDER_INTERVAL_MS:-60000}
+    expose:
+      - "8084"
+    networks:
+      - clinic-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      slot-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8084/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  notification-service:
+    build:
+      context: ./notification-service
+    image: clinic-booking-phase2-notification:local
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT:-8085}
+      MYSQL_HOST: ${MYSQL_DOCKER_HOST:-mysql}
+      MYSQL_PORT: 3306
+      NOTIFICATION_DB_NAME: notification_db
+      DB_USERNAME: ${MYSQL_APP_USER:?Set MYSQL_APP_USER in .env}
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+      RABBITMQ_HOST: ${RABBITMQ_DOCKER_HOST:-rabbitmq}
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?Set RABBITMQ_USERNAME in .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    expose:
+      - "8085"
+    networks:
+      - clinic-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      appointment-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8085/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    image: clinic-booking-phase2-gateway:local
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      GATEWAY_PORT: ${GATEWAY_PORT:-8081}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_DOCKER_URL:-http://auth-service:8082}
+      SLOT_SERVICE_URL: ${SLOT_SERVICE_DOCKER_URL:-http://slot-service:8083}
+      APPOINTMENT_SERVICE_URL: ${APPOINTMENT_SERVICE_DOCKER_URL:-http://appointment-service:8084}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_DOCKER_URL:-http://notification-service:8085}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN_DOCKER:-http://localhost}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    expose:
+      - "8081"
+    networks:
+      - clinic-network
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      slot-service:
+        condition: service_healthy
+      appointment-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  frontend-nginx:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    image: clinic-booking-phase2-frontend:local
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    networks:
+      - clinic-network
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+networks:
+  clinic-network:
+    driver: bridge
+
+volumes:
+  phase2_mysql_data:
+  phase2_rabbitmq_data:
