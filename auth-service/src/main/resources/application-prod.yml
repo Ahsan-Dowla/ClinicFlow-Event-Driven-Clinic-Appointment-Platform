@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${AUTH_DB_NAME}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    locations:
+      - classpath:db/migration
+      - classpath:db/prod-migration
+    placeholders:
+      admin_name: ${INITIAL_ADMIN_NAME}
+      admin_email: ${INITIAL_ADMIN_EMAIL}
+      admin_password_hash: ${INITIAL_ADMIN_PASSWORD_HASH}
+      doctor_one_name: ${INITIAL_DOCTOR_ONE_NAME}
+      doctor_one_email: ${INITIAL_DOCTOR_ONE_EMAIL}
+      doctor_one_password_hash: ${INITIAL_DOCTOR_ONE_PASSWORD_HASH}
+      doctor_two_name: ${INITIAL_DOCTOR_TWO_NAME}
+      doctor_two_email: ${INITIAL_DOCTOR_TWO_EMAIL}
+      doctor_two_password_hash: ${INITIAL_DOCTOR_TWO_PASSWORD_HASH}
+app:
+  jwt:
+    secret: ${JWT_SECRET}
