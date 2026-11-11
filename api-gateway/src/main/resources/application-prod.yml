@@ -1,0 +1,27 @@
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: ${AUTH_SERVICE_URL}
+          predicates:
+            - Path=/auth/**
+        - id: slot-service
+          uri: ${SLOT_SERVICE_URL}
+          predicates:
+            - Path=/doctors/**,/slots/**
+        - id: appointment-service
+          uri: ${APPOINTMENT_SERVICE_URL}
+          predicates:
+            - Path=/appointments/**
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL}
+          predicates:
+            - Path=/notifications/**
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origin-patterns: ${FRONTEND_ORIGIN}
